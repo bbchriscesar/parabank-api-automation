@@ -3,32 +3,59 @@
 A robust, scalable API test automation framework for testing the [Parabank API](https://parabank.parasoft.com/parabank/api-docs/index.html). Built using Python, `pytest`, `requests`, and `pydantic`.
 
 ## Features
-- **Modular Design**: Core client, configurations, models, and tests are neatly separated.
-- **API Client Wrapper**: A customized `requests.Session` client logging requests and responses, and handling HTTP interactions.
+- **Service Object Model**: API-adapted Page Object Model pattern with `BaseService` abstraction for DRY service layers.
+- **API Client Wrapper**: A customized `requests.Session` client with configurable timeouts, automatic retry logic for transient failures, structured logging, and custom exceptions.
 - **Pydantic Validation**: Strict schema validation using Pydantic models for API responses.
-- **Environment Management**: Robust environment variables handling with `pydantic-settings` (e.g., using `.env` files).
-- **Test Reporting**: Automatic generation of HTML reports (`pytest-html`) mapping test execution to visually understandable results.
+- **Environment Management**: Type-safe environment variables handling with `pydantic-settings` (e.g., using `.env` files).
+- **Test Data Management**: Centralized, frozen dataclass-based test constants — no magic numbers in tests.
+- **Deterministic Test Setup**: Auto-use `db_setup` fixture initializes the database before every test session.
+- **Custom Markers**: `smoke`, `regression`, and `negative` markers for selective test execution.
+- **Test Reporting**: Automatic generation of HTML reports (`pytest-html`).
 
 ## Project Structure
 ```text
 parabank-api-automation/
-├── config/             # Settings and configurations (pydantic-settings)
-│   └── settings.py
-├── core/               # Low-level wrappers and utilities
-│   └── api_client.py   # Wrapper around requests.Session
-├── data/               # Test data files (JSON, YAML, CSV)
-├── fixtures/           # Pytest fixtures to inject dependencies
-│   └── api_client_fixture.py
-├── models/             # Pydantic schema models for response validation
-│   └── customer.py
-├── tests/              # The actual test suites
+├── config/                 # Settings and configurations (pydantic-settings)
 │   ├── __init__.py
-│   └── test_customers.py 
-├── conftest.py         # Root level fixture definitions
-├── pytest.ini          # Pytest configuration file
-├── requirements.txt    # Python package dependencies
-├── .env                # Local environment variables
-└── .env.example        # Example environment variables template
+│   └── settings.py
+├── core/                   # Low-level wrappers and utilities
+│   ├── __init__.py
+│   ├── api_client.py       # Wrapper around requests.Session (timeout + retry)
+│   └── exceptions.py       # Custom API exception classes
+├── data/                   # Centralized test data constants
+│   ├── __init__.py
+│   └── test_data.py        # Frozen dataclasses for test parameters
+├── fixtures/               # Pytest fixtures for dependency injection
+│   ├── __init__.py
+│   ├── api_client_fixture.py
+│   └── services_fixtures.py  # Service fixtures + db_setup autouse fixture
+├── models/                 # Pydantic schema models for response validation
+│   ├── __init__.py
+│   ├── account.py
+│   ├── customer.py
+│   ├── loan.py
+│   └── transaction.py
+├── services/               # Service Objects (API Object Model pattern)
+│   ├── __init__.py
+│   ├── base_service.py     # Abstract base service class
+│   ├── accounts_service.py
+│   ├── admin_service.py
+│   ├── auth_service.py
+│   ├── customers_service.py
+│   └── loans_service.py
+├── tests/                  # Test suites with markers
+│   ├── __init__.py
+│   ├── test_accounts.py    # Smoke + Regression + Negative
+│   ├── test_admin.py       # Regression
+│   ├── test_auth.py        # Smoke + Negative
+│   ├── test_customers.py   # Smoke + Negative
+│   └── test_loans.py       # Regression + Negative
+├── conftest.py             # Root-level fixture plugin registration
+├── pytest.ini              # Pytest configuration with custom markers
+├── requirements.txt        # Python package dependencies
+├── openapi.yaml            # Parabank API specification
+├── .env                    # Local environment variables (gitignored)
+└── .env.example            # Example environment variables template
 ```
 
 ## Prerequisites
@@ -56,35 +83,55 @@ parabank-api-automation/
    ```
 
 4. **Environment Variables:**
-   Copy the `.env.example` file to create your own local `.env` file. You can override the Base URL and other configurations here.
+   Copy the `.env.example` file to create your own local `.env` file:
    ```bash
    cp .env.example .env
    ```
 
 ## Running the Tests
 
-To run the entire suite of tests, execute:
+### Full Suite
 ```bash
 pytest tests/
 ```
 
+### By Marker
+Run only smoke (critical path) tests:
+```bash
+pytest tests/ -m smoke
+```
+
+Run only negative / edge case tests:
+```bash
+pytest tests/ -m negative
+```
+
+Run the full regression suite:
+```bash
+pytest tests/ -m regression
+```
+
 ### Viewing Test Reports
-After executing pytest, an HTML test report is automatically generated at the run execution folder root: `report.html`.
-Simply open `report.html` in your favorite web browser to view detailed logs and test summaries.
+After executing pytest, an HTML test report is automatically generated at `report.html`.
+Open it in your browser to view detailed logs and test summaries.
 
 ## Writing Tests
-1. **Define your validation models**: Create a new class extending `BaseModel` from `pydantic` in the `models/` directory for the expected API response.
-2. **Utilize Fixtures**: Add parameters for fixtures (e.g., `api_client`) directly in your test function signatures.
-3. **Write assertions**: Assert on status codes, and load the response JSON into your Pydantic validation model.
+
+1. **Define your validation models**: Create a Pydantic `BaseModel` class in `models/` for the expected API response.
+2. **Add test data**: Add constants to `data/test_data.py` as frozen dataclasses.
+3. **Create or extend a Service**: Add methods to the relevant service in `services/` (inheriting `BaseService`).
+4. **Write your test**: Use fixtures and centralized test data, apply markers.
 
 ```python
-from models.customer import Customer
+import pytest
+from services.customers_service import CustomersService
+from data.test_data import DEFAULT_CUSTOMER
 
-def test_example(api_client):
-    response = api_client.get("/customers/12212")
+@pytest.mark.smoke
+def test_example(customers_service: CustomersService):
+    response, customer = customers_service.get_customer(DEFAULT_CUSTOMER.ID)
     assert response.status_code == 200
-    
-    # Validates response payload schema strictly!
-    data = Customer.model_validate(response.json())
-    assert data.firstName == "John"
+
+    assert customer is not None
+    assert customer.firstName == DEFAULT_CUSTOMER.FIRST_NAME
 ```
