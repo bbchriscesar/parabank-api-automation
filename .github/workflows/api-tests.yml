@@ -1,0 +1,48 @@
+name: Parabank API Tests
+
+# Trigger on all push and pull request activities
+on:
+  push:
+    branches:
+      - '**' # Matches every branch
+  pull_request:
+    branches:
+      - '**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12' 
+          cache: 'pip' # Speeds up subsequent runs by caching dependencies
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Create Dummy .env file for Github Actions
+        run: |
+          # Copy the example file over so the required environment variables exist
+          cp .env.example .env
+
+      - name: Run Pytest
+        run: |
+          pytest tests/ --html=report.html --self-contained-html
+
+      - name: Upload Test Report
+        uses: actions/upload-artifact@v4
+        # Uploads the HTML report so it can be viewed after the workflow completes
+        # always() ensures this step runs even if the tests fail
+        if: always()
+        with:
+          name: pytest-report
+          path: report.html
+          retention-days: 7
